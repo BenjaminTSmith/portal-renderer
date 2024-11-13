@@ -41,6 +41,8 @@ typedef struct {
     float floor, ceiling;
 } sector;
 
+Tigr *textures[1024];
+
 void vline(Tigr *bmp, int x, int y0, int y1, TPixel color) {
     if (y0 > y1) {
         return;
@@ -48,18 +50,22 @@ void vline(Tigr *bmp, int x, int y0, int y1, TPixel color) {
     tigrLine(bmp, x, y0, x, y1, color);
 }
 
-vec2 vec2_rotate(vec2 vec, float a) {
-    a = DEG_TO_RAD(a);
-    return (vec2) {
-        cos(a) * vec.x - sin(a) * vec.y,
-        sin(a) * vec.x + cos(a) * vec.y      
-    };
+void texline(Tigr *src, Tigr *dest, int x, int y0, int y1, int u, int v0, int v1) {
+    if (y0 > y1) {
+        return;
+    }
+    for (int y = y0; y <= y1; y++) {
+        float t = (float)(y - y0) / (y1 - y0);
+        int v = (1 - t) * v0 + t * v1;
+        TPixel pix = textures[0]->pix[v * textures[0]->w + u];
+        tigrPlot(src, x, y, pix);
+    }
 }
 
 vec2 world_to_camera(camera camera, vec2 p) {
     vec2 u = { p.x - camera.position.x, p.y - camera.position.y };
     float a = DEG_TO_RAD(camera.angle);
-    return (vec2){
+    return (vec2) {
         sin(a) * u.x - cos(a) * u.y,
         cos(a) * u.x + sin(a) * u.y      
     };
@@ -80,6 +86,10 @@ vec2 lineseg_intersection(vec2 p0, vec2 p1, vec2 p2, vec2 p3) {
         };
     }
     return (vec2) { NAN, NAN };
+}
+
+float vec2_distace(vec2 p0, vec2 p1) {
+    return sqrtf((p1.x - p0.x) * (p1.x - p0.x) + (p1.y - p0.y) * (p1.y - p0.y));
 }
 
 // 0 is left 1 is right side of wall
@@ -172,7 +182,6 @@ static int current_sector(vec2 position) {
             return i;
         }
     }
-    // NOTE(Ben): maybe put this back to return 0/-1;
     return -1;
 }
 
@@ -193,11 +202,13 @@ inline static void render(Tigr *screen, camera camera) {
 
     int high[WIDTH];
     for (int i = 0; i < WIDTH; i++) {
-        high[i] = 0;
+        // NOTE(Ben): convention is that the value of the occlusion arrays is occluded,
+        // so offset by 1
+        high[i] = -1;
     }
     int low[WIDTH];
     for (int i = 0; i < WIDTH; i++) {
-        low[i] = HEIGHT - 1;
+        low[i] = HEIGHT;
     }
 
     while (front < size) {
@@ -216,51 +227,62 @@ inline static void render(Tigr *screen, camera camera) {
                 continue;
             }
             
+            vec2 cp0 = p0, cp1 = p1;
             vec2 origin = { 0, 0 };
             vec2 far_left = { -1000, 1000 };
             vec2 far_right = { 1000, 1000 };
-            vec2 left_intersect = lineseg_intersection(p0, p1, origin, far_left);
-            vec2 right_intersect = lineseg_intersection(p0, p1, origin, far_right);
+            vec2 left_intersect = lineseg_intersection(cp0, cp1, origin, far_left);
+            vec2 right_intersect = lineseg_intersection(cp0, cp1, origin, far_right);
+            float u0 = 0;
+            float u1 = 511;
+            float wall_length = vec2_distace(p0, p1);
             if (!isnan(left_intersect.x)) {
-                p0 = left_intersect;
+                cp0 = left_intersect;
+                float segment_length = vec2_distace(cp0, p0);
+                float t = segment_length / wall_length;
+                u0 = (1 - t) * u0 + t * u1;
             }
             if (!isnan(right_intersect.x)) {
-                p1 = right_intersect;
+                cp1 = right_intersect;
+                float segment_length = vec2_distace(cp1, p0);
+                float t = segment_length / wall_length;
+                u1 = (1 - t) * u0 + t * u1;
             }
 
-            if (p0.y < 0.00001f) {
-                p0.y = 0.00001f;
+            if (cp0.y < 0.00001f) {
+                cp0.y = 0.00001f;
             }
-            if (p1.y < 0.00001f) {
-                p1.y = 0.00001f;
+            if (cp1.y < 0.00001f) {
+                cp1.y = 0.00001f;
             }
 
-            int x0 = (p0.x / p0.y) * FOCAL_LENGTH + WIDTH / 2.f;
-            int x1 = (p1.x / p1.y) * FOCAL_LENGTH + WIDTH / 2.f;
-            if (x1 < x0 || x0 > entry.x1 || x1 < entry.x0) {
+            int x0 = (cp0.x / cp0.y) * FOCAL_LENGTH + WIDTH / 2.f;
+            int x1 = (cp1.x / cp1.y) * FOCAL_LENGTH + WIDTH / 2.f;
+            if (x0 > entry.x1 || x1 < entry.x0) {
                 continue;
             }
 
             // NOTE(Ben): Maybe fix up this z calculation code. something more elegant than
             // negating the values *shrug*.
-            float topl = -(cursector->ceiling - camera.eyez) / p0.y * FOCAL_LENGTH + HEIGHT / 2.f;
-            float topr = -(cursector->ceiling - camera.eyez) / p1.y * FOCAL_LENGTH + HEIGHT / 2.f;
-            float bottoml = -(cursector->floor - camera.eyez) / p0.y * FOCAL_LENGTH + HEIGHT / 2.f;
-            float bottomr = -(cursector->floor - camera.eyez) / p1.y * FOCAL_LENGTH + HEIGHT / 2.f;
+            float topl = -(cursector->ceiling - camera.eyez) / cp0.y * FOCAL_LENGTH + HEIGHT / 2.f;
+            float topr = -(cursector->ceiling - camera.eyez) / cp1.y * FOCAL_LENGTH + HEIGHT / 2.f;
+            float bottoml = -(cursector->floor - camera.eyez) / cp0.y * FOCAL_LENGTH + HEIGHT / 2.f;
+            float bottomr = -(cursector->floor - camera.eyez) / cp1.y * FOCAL_LENGTH + HEIGHT / 2.f;
+            // TODO(Ben): Rewrite the render code here. We need to have proper interpolation
             for (int x = MAX(x0, entry.x0); x < MIN(x1, entry.x1); x++) {
                 assert(x >= 0);
                 assert(x < WIDTH);
                 float t = (x - x0) / (float)(x1 - x0);
                 int top = topl * (1 - t) + topr * t;
                 int bottom = bottoml * (1 - t) + bottomr * t;
-                sector *neighbor = &sectors[curwall->portal];
-                float ceil_borderl = -(neighbor->ceiling - camera.eyez) / p0.y * FOCAL_LENGTH + HEIGHT / 2.f;
-                float ceil_borderr = -(neighbor->ceiling - camera.eyez) / p1.y * FOCAL_LENGTH + HEIGHT / 2.f;
-                float floor_borderl = -(neighbor->floor - camera.eyez) / p0.y * FOCAL_LENGTH + HEIGHT / 2.f;
-                float floor_borderr = -(neighbor->floor - camera.eyez) / p1.y * FOCAL_LENGTH + HEIGHT / 2.f;
-                int ceil = ceil_borderl * (1 - t) + ceil_borderr * t;
-                int floor = floor_borderl * (1 - t) + floor_borderr * t;
                 if (curwall->portal != -1) {
+                    sector *neighbor = &sectors[curwall->portal];
+                    float ceil_borderl = -(neighbor->ceiling - camera.eyez) / cp0.y * FOCAL_LENGTH + HEIGHT / 2.f;
+                    float ceil_borderr = -(neighbor->ceiling - camera.eyez) / cp1.y * FOCAL_LENGTH + HEIGHT / 2.f;
+                    float floor_borderl = -(neighbor->floor - camera.eyez) / cp0.y * FOCAL_LENGTH + HEIGHT / 2.f;
+                    float floor_borderr = -(neighbor->floor - camera.eyez) / cp1.y * FOCAL_LENGTH + HEIGHT / 2.f;
+                    int ceil = ceil_borderl * (1 - t) + ceil_borderr * t;
+                    int floor = floor_borderl * (1 - t) + floor_borderr * t;
                     vline(screen, x, MAX(0, high[x]), top, tigrRGB(0x0, 0x0, 30 * cursector->ceiling));
                     if (neighbor->ceiling < cursector->ceiling) {
                         vline(screen,
@@ -283,12 +305,17 @@ inline static void render(Tigr *screen, camera camera) {
                         low[x] = MIN(bottom, low[x]);
                     }
                 } else {
-                    vline(screen, x, MAX(top, high[x]), MIN(bottom, low[x]), tigrRGB(0xaf, 0xaf, 0xaf));
-                    vline(screen, x, MAX(0, high[x]), top, tigrRGB(0x0, 0x0, 30 * cursector->ceiling));
+                    float u = (1 - t) * u0 + t * u1;
+                    // vline(screen, x, MAX(top, high[x]), MIN(bottom, low[x]), tigrRGB(0xaf, 0xaf, 0xaf)); // wall
+                    int dist = bottom - top;
+                    int v0 = (MAX(top, high[x]) - top) / (float)dist * 511;
+                    int v1 = (MIN(bottom, low[x]) - top) / (float)dist * 511;
+                    texline(screen, textures[0], x, MAX(top, high[x]), MIN(bottom, low[x]), u, v0, v1);
+                    vline(screen, x, MAX(0, high[x]), MIN(top, low[x]), tigrRGB(0x0, 0x0, 30 * cursector->ceiling)); // ceiling
                     high[x] = HEIGHT - 1;
                     low[x] = 0;
                 }
-            }
+            } // Need to rewrite all of this to be better :)
 
             if (curwall->portal != -1) {
                 queue[size++] = (qentry) {
@@ -299,21 +326,24 @@ inline static void render(Tigr *screen, camera camera) {
     }
 }
 
-/*static void render(Tigr *screen, camera camera, vec2 p0, vec2 p1) {
-    // TODO(Ben): I think I want to rewrite most of the previous render function. Just thought of a lifehack
-    // for clipping. We can skip if we are on the wrong side of the wall with wall_side :P !!! :D
-}*/
-
 int main() {
-    read_level("level2.txt");
+    read_level("level1.txt");
+
+    textures[0] = tigrLoadImage("smiley.png");
+    if (!textures[0]) {
+        perror("smiley.png");
+        return 0;
+    }
 
     Tigr *screen = tigrWindow(WIDTH, HEIGHT, "Hello", TIGR_FIXED);
 
-    camera camera = {0};
-    camera.position = (vec2) { 2, 3 };
-    camera.angle = 0;
-    camera.eyez = 1.5f;
+    camera camera = {
+        .position = { 2, 3 },
+        .angle = 0,
+        .eyez = 1.5f
+    };
 
+    tigrTime();
     int update_fps = 0;
     tigrTime();
     while (!tigrClosed(screen)) {
