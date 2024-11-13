@@ -305,7 +305,8 @@ inline static void render(Tigr *screen, camera camera) {
                         low[x] = MIN(bottom, low[x]);
                     }
                 } else {
-                    float u = (1 - t) * u0 + t * u1;
+                    float u = (1 - t) * u0 / cp0.y + t * u1 / cp1.y;
+                    u = u / ((1 - t) / cp0.y + t / cp1.y);
                     // vline(screen, x, MAX(top, high[x]), MIN(bottom, low[x]), tigrRGB(0xaf, 0xaf, 0xaf)); // wall
                     int dist = bottom - top;
                     int v0 = (MAX(top, high[x]) - top) / (float)dist * 511;
