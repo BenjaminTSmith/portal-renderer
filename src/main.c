@@ -50,7 +50,7 @@ void vline(Tigr *bmp, int x, int y0, int y1, TPixel color) {
     tigrLine(bmp, x, y0, x, y1, color);
 }
 
-void texline(Tigr *src, Tigr *dest, int x, int y0, int y1, int u, int v0, int v1) {
+void texline(Tigr *src, Tigr *dest, int x, int y0, int y1, int u, float v0, float v1) {
     if (y0 > y1) {
         return;
     }
@@ -231,29 +231,29 @@ inline static void render(Tigr *screen, camera camera) {
             vec2 origin = { 0, 0 };
             vec2 far_left = { -1000, 1000 };
             vec2 far_right = { 1000, 1000 };
-            vec2 left_intersect = lineseg_intersection(cp0, cp1, origin, far_left);
-            vec2 right_intersect = lineseg_intersection(cp0, cp1, origin, far_right);
+            vec2 left_intersect = lineseg_intersection(p0, p1, origin, far_left);
+            vec2 right_intersect = lineseg_intersection(p0, p1, origin, far_right);
             float u0 = 0;
-            float u1 = 511;
+            float u1 = textures[0]->w - 1;
             float wall_length = vec2_distace(p0, p1);
             if (!isnan(left_intersect.x)) {
                 cp0 = left_intersect;
-                float segment_length = vec2_distace(cp0, p0);
+                float segment_length = vec2_distace(p0, cp0);
                 float t = segment_length / wall_length;
-                u0 = (1 - t) * u0 + t * u1;
+                u0 = t * (textures[0]->w - 1);
             }
             if (!isnan(right_intersect.x)) {
                 cp1 = right_intersect;
-                float segment_length = vec2_distace(cp1, p0);
+                float segment_length = vec2_distace(p0, cp1);
                 float t = segment_length / wall_length;
-                u1 = (1 - t) * u0 + t * u1;
+                u1 = t * (textures[0]->w - 1);
             }
 
-            if (cp0.y < 0.00001f) {
-                cp0.y = 0.00001f;
+            if (cp0.y < 0.001f) {
+                cp0.y = 0.001f;
             }
-            if (cp1.y < 0.00001f) {
-                cp1.y = 0.00001f;
+            if (cp1.y < 0.001f) {
+                cp1.y = 0.001f;
             }
 
             int x0 = (cp0.x / cp0.y) * FOCAL_LENGTH + WIDTH / 2.f;
@@ -269,7 +269,7 @@ inline static void render(Tigr *screen, camera camera) {
             float bottoml = -(cursector->floor - camera.eyez) / cp0.y * FOCAL_LENGTH + HEIGHT / 2.f;
             float bottomr = -(cursector->floor - camera.eyez) / cp1.y * FOCAL_LENGTH + HEIGHT / 2.f;
             // TODO(Ben): Rewrite the render code here. We need to have proper interpolation
-            for (int x = MAX(x0, entry.x0); x < MIN(x1, entry.x1); x++) {
+            for (int x = MAX(x0, entry.x0); x <= MIN(x1, entry.x1); x++) {
                 assert(x >= 0);
                 assert(x < WIDTH);
                 float t = (x - x0) / (float)(x1 - x0);
@@ -305,12 +305,12 @@ inline static void render(Tigr *screen, camera camera) {
                         low[x] = MIN(bottom, low[x]);
                     }
                 } else {
-                    float u = (1 - t) * u0 / cp0.y + t * u1 / cp1.y;
-                    u = u / ((1 - t) / cp0.y + t / cp1.y);
-                    // vline(screen, x, MAX(top, high[x]), MIN(bottom, low[x]), tigrRGB(0xaf, 0xaf, 0xaf)); // wall
-                    int dist = bottom - top;
-                    int v0 = (MAX(top, high[x]) - top) / (float)dist * 511;
-                    int v1 = (MIN(bottom, low[x]) - top) / (float)dist * 511;
+                    float u = ((1 - t) * (u0 / cp0.y) + (t * (u1 / cp1.y)))
+                        / (((1 - t) / cp0.y) + (t / cp1.y));
+                    vline(screen, x, MAX(top, high[x]), MIN(bottom, low[x]), tigrRGB(0xaf, 0xaf, 0xaf)); // wall
+                    float dist = bottom - top;
+                    float v0 = ((MAX(top, high[x]) - top) / dist) * (textures[0]->h - 1);
+                    float v1 = ((MIN(bottom, low[x]) - top) / dist) * (textures[0]->h - 1);
                     texline(screen, textures[0], x, MAX(top, high[x]), MIN(bottom, low[x]), u, v0, v1);
                     vline(screen, x, MAX(0, high[x]), MIN(top, low[x]), tigrRGB(0x0, 0x0, 30 * cursector->ceiling)); // ceiling
                     high[x] = HEIGHT - 1;
