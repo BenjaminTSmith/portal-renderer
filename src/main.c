@@ -50,7 +50,7 @@ void vline(Tigr *bmp, int x, int y0, int y1, TPixel color) {
     tigrLine(bmp, x, y0, x, y1, color);
 }
 
-void texline(Tigr *src, Tigr *dest, int x, int y0, int y1, int u, float v0, float v1) {
+void texline(Tigr *src, Tigr *dest, int x, float y0, float y1, int u, float v0, float v1) {
     if (y0 > y1) {
         return;
     }
@@ -273,16 +273,16 @@ inline static void render(Tigr *screen, camera camera) {
                 assert(x >= 0);
                 assert(x < WIDTH);
                 float t = (x - x0) / (float)(x1 - x0);
-                int top = topl * (1 - t) + topr * t;
-                int bottom = bottoml * (1 - t) + bottomr * t;
+                float top = topl * (1 - t) + topr * t;
+                float bottom = bottoml * (1 - t) + bottomr * t;
                 if (curwall->portal != -1) {
                     sector *neighbor = &sectors[curwall->portal];
                     float ceil_borderl = -(neighbor->ceiling - camera.eyez) / cp0.y * FOCAL_LENGTH + HEIGHT / 2.f;
                     float ceil_borderr = -(neighbor->ceiling - camera.eyez) / cp1.y * FOCAL_LENGTH + HEIGHT / 2.f;
                     float floor_borderl = -(neighbor->floor - camera.eyez) / cp0.y * FOCAL_LENGTH + HEIGHT / 2.f;
                     float floor_borderr = -(neighbor->floor - camera.eyez) / cp1.y * FOCAL_LENGTH + HEIGHT / 2.f;
-                    int ceil = ceil_borderl * (1 - t) + ceil_borderr * t;
-                    int floor = floor_borderl * (1 - t) + floor_borderr * t;
+                    float ceil = ceil_borderl * (1 - t) + ceil_borderr * t;
+                    float floor = floor_borderl * (1 - t) + floor_borderr * t;
                     vline(screen, x, MAX(0, high[x]), top, tigrRGB(0x0, 0x0, 30 * cursector->ceiling));
                     if (neighbor->ceiling < cursector->ceiling) {
                         vline(screen,
@@ -307,12 +307,13 @@ inline static void render(Tigr *screen, camera camera) {
                 } else {
                     float u = ((1 - t) * (u0 / cp0.y) + (t * (u1 / cp1.y)))
                         / (((1 - t) / cp0.y) + (t / cp1.y));
-                    vline(screen, x, MAX(top, high[x]), MIN(bottom, low[x]), tigrRGB(0xaf, 0xaf, 0xaf)); // wall
+                    // vline(screen, x, MAX(top, high[x]), MIN(bottom, low[x]), tigrRGB(0xaf, 0xaf, 0xaf)); // wall
                     float dist = bottom - top;
                     float v0 = ((MAX(top, high[x]) - top) / dist) * (textures[0]->h - 1);
                     float v1 = ((MIN(bottom, low[x]) - top) / dist) * (textures[0]->h - 1);
                     texline(screen, textures[0], x, MAX(top, high[x]), MIN(bottom, low[x]), u, v0, v1);
-                    vline(screen, x, MAX(0, high[x]), MIN(top, low[x]), tigrRGB(0x0, 0x0, 30 * cursector->ceiling)); // ceiling
+                    vline(screen, x, MAX(0, high[x]), MIN(top, low[x]),
+                          tigrRGB(0x0, 0x0, 30 * cursector->ceiling)); // ceiling
                     high[x] = HEIGHT - 1;
                     low[x] = 0;
                 }
@@ -330,9 +331,9 @@ inline static void render(Tigr *screen, camera camera) {
 int main() {
     read_level("level1.txt");
 
-    textures[0] = tigrLoadImage("smiley.png");
+    textures[0] = tigrLoadImage("output.png");
     if (!textures[0]) {
-        perror("smiley.png");
+        perror("lowbrick.png");
         return 0;
     }
 
